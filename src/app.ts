@@ -1,9 +1,9 @@
-import MQTT from "async-mqtt";
 import { AirthingsApi } from "./api";
 import { anonymizeConfig, getConfig } from "./config";
 import { consoleLogger } from "./logger";
 import { sleep } from "./utils";
 import { Device } from "./models";
+import { Publisher } from "./publish";
 
 const config = getConfig();
 const logger = consoleLogger(config.verbose);
@@ -21,17 +21,7 @@ async function run(): Promise<void> {
   logger.log("Getting devices...");
   const devices = await api.getDevices();
 
-  async function publish(topic: string, message: any) {
-    const mqttClient = await MQTT.connectAsync(config.mqttUrl, {
-      clientId:
-        config.mqttClientId.length > 0 ? config.mqttClientId : undefined,
-      username: config.mqttUsername,
-      password: config.mqttPassword,
-    });
-    await mqttClient.publish(topic, JSON.stringify(message), { retain: config.mqttRetain });
-    await mqttClient.end();
-  }
-
+  const publisher = new Publisher(config.mqttUrl, config.mqttRetain, config.mqttClientId.length > 0 ? config.mqttClientId : undefined, config.mqttUsername, config.mqttPassword);
   async function fetchAndPublish(
     device: Device,
   ): Promise<void> {
@@ -40,19 +30,13 @@ async function run(): Promise<void> {
     );
     const data = await api.getLatestSamples(device.id);
     logger.log(`Fetched ${Object.keys(data.data).length} data-points`);
-    const mqttClient = await MQTT.connectAsync(config.mqttUrl, {
-      clientId:
-        config.mqttClientId.length > 0 ? config.mqttClientId : undefined,
-      username: config.mqttUsername,
-      password: config.mqttPassword,
-    });
     const topic = `${config.mqttTopic}/${device.id}`;
     const message = {
       data: data.data,
       info: device,
       timestamp: new Date().toISOString(),
     };
-    await publish(topic, message);
+    await publisher.publish(topic, message);
     logger.log("Published.");
   }
 
